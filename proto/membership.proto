@@ -16,7 +16,8 @@ enum MemberState {
   MEMBER_STATE_UNSPECIFIED = 0;
   ALIVE = 1;
   LEFT = 2;
-  FAULTY = 3; // confirmed failed (post-suspicion/timeout)
+  SUSPECTED = 3;
+  DEAD = 4; // confirmed failed (post-suspicion/timeout)
 }
 
 // A membership entry suitable for dissemination/piggyback
@@ -53,7 +54,7 @@ message Envelope {
   // For matching request/response pairs if needed (e.g., Join/JoinAck)
   string request_id = 4;
 
-  // Oneof payloads
+  // One of payloads
   oneof payload {
     Join join = 10;
     JoinAck join_ack = 11;

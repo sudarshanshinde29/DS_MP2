@@ -1,6 +1,7 @@
 package main
 
 import (
+	"DS_MP2/internal/protocol"
 	"bufio"
 	"context"
 	"fmt"
@@ -10,10 +11,10 @@ import (
 	"strconv"
 	"time"
 
-	mpb "DS_MP2/protoBuilds/membership"
 	"DS_MP2/internal/cli"
 	"DS_MP2/internal/membership"
 	"DS_MP2/internal/transport"
+	mpb "DS_MP2/protoBuilds/membership"
 )
 
 func main() {
@@ -44,12 +45,18 @@ func main() {
 	// Create membership table
 	table := membership.NewTable(self, logger)
 
+	fanout := 3
+	var protoPtr *protocol.Protocol
+	handler := func(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {
+		if protoPtr != nil {
+			protoPtr.Handle(ctx, env, addr)
+		}
+	}
+
 	// Create UDP transport
 	bindAddr := fmt.Sprintf("%s:%d", ip, port)
 	var udp *transport.UDP
-	udp, err = transport.NewUDP(bindAddr, func(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {
-		handleMessage(table, udp, env, addr, logger)
-	})
+	udp, err = transport.NewUDP(bindAddr, handler)
 	if err != nil {
 		log.Fatalf("Failed to create UDP transport: %v", err)
 	}
@@ -57,6 +64,8 @@ func main() {
 
 	// Create CLI
 	cli := cli.NewCLI(table, udp, self, logger)
+
+	protoPtr = protocol.NewProtocol(table, udp, logger, fanout)
 
 	// Start UDP server in background
 	ctx, cancel := context.WithCancel(context.Background())
@@ -67,6 +76,10 @@ func main() {
 			logger("UDP server error: %v", err)
 		}
 	}()
+
+	// Start gossip
+	// Periodic gossip every 300ms with 10% jitter
+	protocol.StartGossip(ctx, protoPtr, 300*time.Millisecond, 0.10)
 
 	logger("Daemon started on %s", bindAddr)
 	logger("Self: %s", membership.StringifyNodeID(self))
@@ -95,100 +108,4 @@ func main() {
 	}
 
 	logger("Daemon shutting down")
-}
-
-func handleMessage(table *membership.Table, transport *transport.UDP, env *mpb.Envelope, addr *net.UDPAddr, logger func(string, ...interface{})) {
-	logger("Received message from %s: type=%v", addr, env.GetType())
-
-	switch env.GetType() {
-	case mpb.Envelope_JOIN:
-		handleJoin(table, transport, env, addr, logger)
-	case mpb.Envelope_JOIN_ACK:
-		handleJoinAck(table, env, addr, logger)
-	case mpb.Envelope_UPDATE_BATCH:
-		handleUpdateBatch(table, env, addr, logger)
-	default:
-		logger("Unknown message type: %v", env.GetType())
-	}
-}
-
-func handleJoin(table *membership.Table, transport *transport.UDP, env *mpb.Envelope, addr *net.UDPAddr, logger func(string, ...interface{})) {
-	join := env.GetJoin()
-	if join == nil {
-		return
-	}
-
-	logger("Processing join from %s", membership.StringifyNodeID(join.Node))
-
-	// Add joining node to membership table
-	entry := &mpb.MembershipEntry{
-		Node:          join.Node,
-		State:         mpb.MemberState_ALIVE,
-		Incarnation:   join.Node.GetIncarnation(),
-		LastUpdateMs:  uint64(time.Now().UnixMilli()),
-	}
-	table.ApplyUpdate(entry)
-
-	// Send join ack with current membership snapshot
-	members := table.GetMembers()
-	joinAck := &mpb.JoinAck{
-		Node:                 join.Node,
-		MembershipSnapshot:   make([]*mpb.MembershipEntry, len(members)),
-		SentMs:              uint64(time.Now().UnixMilli()),
-	}
-
-	for i, member := range members {
-		joinAck.MembershipSnapshot[i] = &mpb.MembershipEntry{
-			Node:          member.NodeID,
-			State:         member.State,
-			Incarnation:   member.Incarnation,
-			LastUpdateMs:  uint64(member.LastUpdate.UnixMilli()),
-		}
-	}
-
-	// Create response envelope
-	response := &mpb.Envelope{
-		Version:   1,
-		Sender:    table.GetSelf(),
-		Type:      mpb.Envelope_JOIN_ACK,
-		RequestId: env.GetRequestId(),
-		Payload:   &mpb.Envelope_JoinAck{JoinAck: joinAck},
-	}
-
-	// Send response back to sender
-	if err := transport.Send(addr, response); err != nil {
-		logger("Failed to send join ack: %v", err)
-	} else {
-		logger("Sent join ack to %s with %d members", addr, len(members))
-	}
-}
-
-func handleJoinAck(table *membership.Table, env *mpb.Envelope, addr *net.UDPAddr, logger func(string, ...interface{})) {
-	joinAck := env.GetJoinAck()
-	if joinAck == nil {
-		return
-	}
-
-	logger("Received join ack with %d members", len(joinAck.MembershipSnapshot))
-
-	// Apply all membership entries from snapshot
-	for _, entry := range joinAck.MembershipSnapshot {
-		table.ApplyUpdate(entry)
-	}
-
-	logger("Updated membership table with snapshot")
-}
-
-func handleUpdateBatch(table *membership.Table, env *mpb.Envelope, addr *net.UDPAddr, logger func(string, ...interface{})) {
-	updateBatch := env.GetUpdateBatch()
-	if updateBatch == nil {
-		return
-	}
-
-	logger("Received update batch with %d entries", len(updateBatch.Entries))
-
-	// Apply all updates
-	for _, entry := range updateBatch.Entries {
-		table.ApplyUpdate(entry)
-	}
 }

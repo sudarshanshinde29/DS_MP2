@@ -22,6 +22,57 @@ type Table struct {
 	logger  func(string, ...interface{})
 }
 
+func Precedence(s mpb.MemberState) int {
+	switch s {
+	case mpb.MemberState_DEAD:
+		return 4
+	case mpb.MemberState_LEFT:
+		return 3
+	case mpb.MemberState_SUSPECTED:
+		return 2
+	case mpb.MemberState_ALIVE:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func isNewer(newInc, oldInc uint64, newState, oldState mpb.MemberState) bool {
+	if newInc > oldInc {
+		return true
+	}
+	if newInc < oldInc {
+		return false
+	}
+	return Precedence(newState) > Precedence(oldState)
+}
+
+// Find existing key for a node by ip:port (handles older map keys that include incarnation)
+func (t *Table) findKeyByIPPort(ip string, port uint32) (string, *Member, bool) {
+	for k, m := range t.members {
+		if m.NodeID.GetIp() == ip && m.NodeID.GetPort() == port {
+			return k, m, true
+		}
+	}
+	return "", nil, false
+}
+
+func (t *Table) Snapshot() []*mpb.MembershipEntry {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	entries := make([]*mpb.MembershipEntry, 0, len(t.members))
+	nowMs := uint64(time.Now().UnixMilli())
+	for _, m := range t.members {
+		entries = append(entries, &mpb.MembershipEntry{
+			Node:         m.NodeID,
+			State:        m.State,
+			Incarnation:  m.Incarnation,
+			LastUpdateMs: nowMs,
+		})
+	}
+	return entries
+}
+
 func NewTable(self *mpb.NodeID, logger func(string, ...interface{})) *Table {
 	// Create a new table
 	t := &Table{
@@ -51,17 +102,17 @@ func (t *Table) ApplyUpdate(entry *mpb.MembershipEntry) bool {
 	if entry == nil || entry.Node == nil {
 		return false
 	}
-
-	key := StringifyNodeID(entry.Node)
+	ip := entry.Node.GetIp()
+	port := entry.Node.GetPort()
 	now := time.Now()
 
-	t.mu.Lock()         // Lock for writing
-	defer t.mu.Unlock() // Unlock when function exits
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	existing, exists := t.members[key]
-
-	// If new entry, add it
+	existingKey, existing, exists := t.findKeyByIPPort(ip, port)
 	if !exists {
+		// First time we see this ip:port
+		key := StringifyNodeID(entry.Node) // may include incarnation; ok for new insert
 		t.members[key] = &Member{
 			NodeID:      entry.Node,
 			State:       entry.State,
@@ -72,12 +123,35 @@ func (t *Table) ApplyUpdate(entry *mpb.MembershipEntry) bool {
 		return true
 	}
 
-	// just update state and timestamp
-	existing.State = entry.State
-	existing.Incarnation = entry.Incarnation
-	existing.LastUpdate = now
-	t.logger("Updated member: %s state=%v", key, entry.State)
+	// Decide if improvement
+	if !isNewer(entry.Incarnation, existing.Incarnation, entry.State, existing.State) {
+		return false
+	}
+
+	// If incarnation changed, move map key to the new StringifyNodeID
+	newKey := StringifyNodeID(entry.Node)
+	if newKey != existingKey {
+		delete(t.members, existingKey)
+	}
+	t.members[newKey] = &Member{
+		NodeID:      entry.Node,
+		State:       entry.State,
+		Incarnation: entry.Incarnation,
+		LastUpdate:  now,
+	}
+	t.logger("Updated member: %s state=%v", newKey, entry.State)
 	return true
+}
+
+// Merge a received snapshot; returns how many entries changed
+func (t *Table) MergeSnapshot(entries []*mpb.MembershipEntry) int {
+	changed := 0
+	for _, e := range entries {
+		if t.ApplyUpdate(e) {
+			changed++
+		}
+	}
+	return changed
 }
 
 func (t *Table) GetMembers() []*Member {
