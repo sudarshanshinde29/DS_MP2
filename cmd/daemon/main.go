@@ -47,6 +47,7 @@ func main() {
 
 	fanout := 3
 	var protoPtr *protocol.Protocol
+
 	handler := func(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {
 		if protoPtr != nil {
 			protoPtr.Handle(ctx, env, addr)
@@ -66,6 +67,12 @@ func main() {
 	cli := cli.NewCLI(table, udp, self, logger)
 
 	protoPtr = protocol.NewProtocol(table, udp, logger, fanout)
+	protoPtr.PQ.Enqueue(&mpb.MembershipEntry{
+		Node:         table.GetSelf(),
+		State:        mpb.MemberState_ALIVE,
+		Incarnation:  table.GetSelf().GetIncarnation(),
+		LastUpdateMs: uint64(time.Now().UnixMilli()),
+	})
 
 	// Start UDP server in background
 	ctx, cancel := context.WithCancel(context.Background())

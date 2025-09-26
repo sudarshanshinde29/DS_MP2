@@ -5,6 +5,7 @@ import (
 	"DS_MP2/internal/transport"
 	mpb "DS_MP2/protoBuilds/membership"
 	"context"
+	"math/rand"
 	"net"
 	"time"
 
@@ -140,10 +141,7 @@ func (p *Protocol) chooseTargets(k int) []*mpb.NodeID {
 		}
 		peers = append(peers, m.NodeID)
 	}
-	for i := range peers {
-		j := i + int(time.Now().UnixNano())%(len(peers)-i)
-		peers[i], peers[j] = peers[j], peers[i]
-	}
+	rand.Shuffle(len(peers), func(i, j int) { peers[i], peers[j] = peers[j], peers[i] })
 	if k > len(peers) {
 		k = len(peers)
 	}

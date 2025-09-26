@@ -3,7 +3,6 @@ package transport
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"net"
 	"sync/atomic"
@@ -54,7 +53,6 @@ func (u *UDP) Close() error { return u.conn.Close() }
 func (u *UDP) Addr() net.Addr { return u.conn.LocalAddr() }
 
 func (u *UDP) Send(to *net.UDPAddr, env *mpb.Envelope) error {
-	//  protobuf
 	b, err := proto.Marshal(env)
 	if err != nil {
 		return err
@@ -62,7 +60,6 @@ func (u *UDP) Send(to *net.UDPAddr, env *mpb.Envelope) error {
 	if len(b) > 1200 {
 		return fmt.Errorf("oversize datagram %dB > 1200B", len(b))
 	}
-	log.Printf("SEND type=%v peer=%s len=%d", env.GetType(), to.String(), len(b))
 	_, err = u.conn.WriteToUDP(b, to)
 	return err
 }

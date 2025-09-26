@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -112,17 +113,52 @@ func (c *CLI) join(introducerAddr string) {
 }
 
 func (c *CLI) leave() {
-	// Mark self as LEFT in local table
+	// Increment incarnation (safer refutation semantics)
+	c.self.Incarnation = c.self.GetIncarnation() + 1
+
+	// Mark self as LEFT locally
 	entry := &mpb.MembershipEntry{
 		Node:         c.self,
 		State:        mpb.MemberState_LEFT,
 		Incarnation:  c.self.GetIncarnation(),
 		LastUpdateMs: uint64(time.Now().UnixMilli()),
 	}
-
-	c.table.ApplyUpdate(entry)
-	c.logger("Marked self as LEFT")
+	changed := c.table.ApplyUpdate(entry)
+	c.logger("Marked self as LEFT (changed=%v)", changed)
 	fmt.Println("Left the group")
+
+	// Immediate fanout to k random ALIVE peers (exclude self)
+	k := 3
+	var peers []*mpb.NodeID
+	for _, m := range c.table.GetMembers() {
+		if m.State != mpb.MemberState_ALIVE {
+			continue
+		}
+		if m.NodeID.GetIp() == c.self.GetIp() && m.NodeID.GetPort() == c.self.GetPort() {
+			continue
+		}
+		peers = append(peers, m.NodeID)
+	}
+	if len(peers) == 0 {
+		return
+	}
+	rand.Shuffle(len(peers), func(i, j int) { peers[i], peers[j] = peers[j], peers[i] })
+	if k > len(peers) {
+		k = len(peers)
+	}
+
+	batch := &mpb.UpdateBatch{Entries: []*mpb.MembershipEntry{entry}}
+	env := &mpb.Envelope{
+		Version: 1,
+		Sender:  c.self,
+		Type:    mpb.Envelope_UPDATE_BATCH,
+		Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: batch},
+	}
+
+	for _, n := range peers[:k] {
+		dst := &net.UDPAddr{IP: net.ParseIP(n.GetIp()), Port: int(n.GetPort())}
+		_ = c.transport.Send(dst, env)
+	}
 }
 
 func (c *CLI) displaySuspects() {
