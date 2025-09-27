@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -208,6 +209,9 @@ func (c *CLI) leave() {
 		dst := &net.UDPAddr{IP: net.ParseIP(n.GetIp()), Port: int(n.GetPort())}
 		_ = c.transport.Send(dst, env)
 	}
+
+	time.Sleep(300 * time.Millisecond) // one gossip tick
+	os.Exit(0)
 }
 
 func parseAddr(addr string) (*net.UDPAddr, error) {
