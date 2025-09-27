@@ -17,7 +17,7 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if p.Mode() != "ping" { // only active in ping mode
+			if p.Mode() != "ping" || !p.selfAlive() {
 				t.Reset(period)
 				continue
 			}
@@ -52,7 +52,6 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 						p.modeStr(), membership.StringifyNodeID(dst))
 					if e := p.Sus.OnNoAck(key, dst, time.Now()); e != nil {
 						p.PQ.Enqueue(e)
-						p.fanoutOnce()
 					}
 				}
 			case <-ctx.Done():
@@ -60,6 +59,14 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 				return
 			}
 			timer.Stop()
+			if p.SuspicionOn() {
+				entries := p.Sus.Tick(time.Now(), p.Table.Snapshot())
+				for _, e := range entries {
+					if p.Table.ApplyUpdate(e) {
+						p.PQ.Enqueue(e)
+					}
+				}
+			}
 			t.Reset(period)
 		}
 	}

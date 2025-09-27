@@ -154,6 +154,30 @@ func (t *Table) MergeSnapshot(entries []*mpb.MembershipEntry) int {
 	return changed
 }
 
+// Remove entries in terminal states after a TTL.
+// Returns number of removed entries.
+func (t *Table) GCStates(ttl time.Duration, removeLeft bool) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := time.Now()
+	removed := 0
+	for key, m := range t.members {
+		if m.State == mpb.MemberState_DEAD && now.Sub(m.LastUpdate) >= ttl {
+			delete(t.members, key)
+			removed++
+			continue
+		}
+		if removeLeft && m.State == mpb.MemberState_LEFT && now.Sub(m.LastUpdate) >= ttl {
+			delete(t.members, key)
+			removed++
+		}
+	}
+	if removed > 0 && t.logger != nil {
+		t.logger("GC removed %d entries", removed)
+	}
+	return removed
+}
+
 func (t *Table) GetMembers() []*Member {
 	t.mu.RLock()         // Lock for reading
 	defer t.mu.RUnlock() // Unlock when function exits

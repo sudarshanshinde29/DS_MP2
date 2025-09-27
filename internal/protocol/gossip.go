@@ -75,6 +75,9 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 						}
 					}
 				}
+				// GC: remove DEAD after TTL; keep LEFT (set second arg true if you also want to purge LEFT later)
+				_ = p.Table.GCStates(5*time.Second, false)
+
 				p.fanoutOnce()
 				timer.Reset(randJitter())
 			}
