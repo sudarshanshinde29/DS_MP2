@@ -63,6 +63,45 @@ func (s *SuspicionManager) OnNoAck(nodeKey string, node *mpb.NodeID, now time.Ti
 	}
 }
 
+// OnNoAckNoSuspect is used when suspicion is OFF. It starts a fail timer for the
+// probed node. If the node remains silent until the deadline, TickNoSuspect will
+// emit a DEAD update. Any message from the node cancels this via OnHearFrom.
+func (s *SuspicionManager) OnNoAckNoSuspect(nodeKey string, node *mpb.NodeID, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.failAt[nodeKey]; ok {
+		return
+	}
+	s.failAt[nodeKey] = now.Add(s.Tfail)
+	s.Logf("NOACK start %s (nosuspect)", nodeKey)
+}
+
+// TickNoSuspect promotes nodes with expired fail timers directly to DEAD.
+// Returns entries to disseminate.
+func (s *SuspicionManager) TickNoSuspect(now time.Time, members []*mpb.MembershipEntry) []*mpb.MembershipEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var output []*mpb.MembershipEntry
+	for key, deadline := range s.failAt {
+		if now.After(deadline) {
+			delete(s.failAt, key)
+			for _, e := range members {
+				if membership.StringifyNodeID(e.Node) == key {
+					output = append(output, &mpb.MembershipEntry{
+						Node:         e.Node,
+						State:        mpb.MemberState_DEAD,
+						Incarnation:  e.Incarnation,
+						LastUpdateMs: uint64(now.UnixMilli()),
+					})
+					s.Logf("DEAD %s (nosuspect)", key)
+					break
+				}
+			}
+		}
+	}
+	return output
+}
+
 // Tick drives promotions: gossip-silence -> SUSPECT; SUSPECT -> FAULTY after Tfail and Tcleanup.
 // Returns entries to disseminate (0, 1, or many).
 func (s *SuspicionManager) Tick(now time.Time, members []*mpb.MembershipEntry) []*mpb.MembershipEntry {

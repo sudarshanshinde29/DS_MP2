@@ -53,6 +53,9 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 					if e := p.Sus.OnNoAck(key, dst, time.Now()); e != nil {
 						p.PQ.Enqueue(e)
 					}
+				} else if !p.SuspicionOn() && !p.Sus.HeardSince(key, sentAt) {
+					// With nosuspect, start a fail timer only for the probed node
+					p.Sus.OnNoAckNoSuspect(key, dst, time.Now())
 				}
 			case <-ctx.Done():
 				timer.Stop()
@@ -66,7 +69,16 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 						p.PQ.Enqueue(e)
 					}
 				}
+			} else {
+				entries := p.Sus.TickNoSuspect(time.Now(), p.Table.Snapshot())
+				for _, e := range entries {
+					if p.Table.ApplyUpdate(e) {
+						p.PQ.Enqueue(e)
+					}
+				}
 			}
+			// GC DEAD entries periodically (same as gossip loop)
+			_ = p.Table.GCStates(5*time.Second, false)
 			t.Reset(period)
 		}
 	}

@@ -27,7 +27,7 @@ type Protocol struct {
 
 func NewProtocol(t *membership.Table, udp *transport.UDP, logf func(string, ...interface{}), fanout int) *Protocol {
 	p := &Protocol{Table: t, UDP: udp, PQ: NewPiggybackQueue(), Logf: logf, FanoutK: fanout}
-	p.mode = "gossip"
+	p.mode = "ping"
 	p.suspOn = false
 	p.Sus = NewSuspicion(4*time.Second, 4*time.Second, logf, t.GetSelf())
 	return p
@@ -107,6 +107,23 @@ func (p *Protocol) onJoin(ctx context.Context, env *mpb.Envelope, addr *net.UDPA
 	if b, err := proto.Marshal(resp); err == nil && len(b) <= budget {
 		_ = p.UDP.Send(addr, resp)
 	}
+
+	// Additionally, proactively send a full UPDATE_BATCH of current known members
+	// to the joining node so it quickly converges even in ping mode.
+	{
+		entries := p.Table.Snapshot()
+		if len(entries) > 0 {
+			env := &mpb.Envelope{
+				Version: 1,
+				Sender:  p.Table.GetSelf(),
+				Type:    mpb.Envelope_UPDATE_BATCH,
+				Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
+			}
+			if wire, err := proto.Marshal(env); err == nil && len(wire) <= budget {
+				_ = p.UDP.Send(addr, env)
+			}
+		}
+	}
 }
 
 func (p *Protocol) onJoinAck(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {
@@ -182,7 +199,7 @@ func nodeAddr(n *mpb.NodeID) *net.UDPAddr {
 
 // Build and send one UPDATE_BATCH within budget to selected targets
 func (p *Protocol) fanoutOnce() {
-	if p.PQ == nil || p.Mode() != "gossip" || !p.selfAlive() {
+	if p.PQ == nil || !p.selfAlive() {
 		return
 	}
 	entries := p.PQ.DrainUpToBytes(budget, func(es []*mpb.MembershipEntry) (int, error) {
