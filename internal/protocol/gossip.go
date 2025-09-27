@@ -30,10 +30,16 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 				return
 			// on each tick, call p.fanoutOnce() to send one UPDATE_BATCH to k random peers, then reset timer with a new jittered period.
 			case <-timer.C:
+				if p.Mode() != "gossip" || !p.selfAlive() {
+					timer.Reset(randJitter())
+					continue
+				}
 				if p.SuspicionOn() {
 					entries := p.Sus.Tick(time.Now(), p.Table.Snapshot())
 					for _, e := range entries {
 						if p.Table.ApplyUpdate(e) {
+							p.Logf("DETECT origin=gossip mode=%s node=%s new_state=%v",
+								p.modeStr(), membership.StringifyNodeID(e.Node), e.State)
 							p.PQ.Enqueue(e)
 						}
 					}
@@ -62,6 +68,8 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 								Incarnation: e.Incarnation, LastUpdateMs: uint64(now.UnixMilli()),
 							}
 							if p.Table.ApplyUpdate(dead) {
+								p.Logf("DETECT origin=gossip mode=%s reason=silence>tfail node=%s new_state=DEAD",
+									p.modeStr(), membership.StringifyNodeID(e.Node))
 								p.PQ.Enqueue(dead)
 							}
 						}

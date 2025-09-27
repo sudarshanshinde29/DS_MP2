@@ -43,7 +43,13 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 			timer := time.NewTimer(ackMs)
 			select {
 			case <-timer.C:
+				if p.Mode() != "ping" || !p.selfAlive() {
+					t.Reset(period)
+					continue
+				}
 				if p.SuspicionOn() && !p.Sus.HeardSince(key, sentAt) {
+					p.Logf("DETECT origin=ping mode=%s reason=no-ack node=%s action=SUSPECT",
+						p.modeStr(), membership.StringifyNodeID(dst))
 					if e := p.Sus.OnNoAck(key, dst, time.Now()); e != nil {
 						p.PQ.Enqueue(e)
 						p.fanoutOnce()
@@ -65,20 +71,28 @@ func (p *Protocol) sendPING(dst *mpb.NodeID) {
 		Sender:  p.Table.GetSelf(),
 		Type:    mpb.Envelope_PING,
 	}
+	p.Logf("PING send mode=%s dst=%s",
+		p.modeStr(), membership.StringifyNodeID(dst))
 	_ = p.UDP.Send(nodeAddr(dst), env)
 }
 
 func (p *Protocol) onPing(dst *mpb.NodeID, from *mpb.NodeID) {
 	// reply Ack, include piggyback if any
+	p.Logf("PING recv mode=%s from=%s",
+		p.modeStr(), membership.StringifyNodeID(from))
 	env := p.buildUpdateBatchEnvelope()
 	if env != nil {
 		_ = p.UDP.Send(nodeAddr(from), env)
 	}
 	ack := &mpb.Envelope{Version: 1, Sender: p.Table.GetSelf(), Type: mpb.Envelope_ACK}
 	_ = p.UDP.Send(nodeAddr(from), ack)
+	p.Logf("ACK send mode=%s to=%s",
+		p.modeStr(), membership.StringifyNodeID(from))
 }
 
 func (p *Protocol) onACK(from *mpb.NodeID) {
+	p.Logf("ACK recv mode=%s from=%s",
+		p.modeStr(), membership.StringifyNodeID(from))
 	// mark heard; any waiting goroutine will see this through Suspicion path
 	if p.SuspicionOn() {
 		p.Sus.OnHearFrom(membership.StringifyNodeID(from), time.Now())
@@ -86,6 +100,9 @@ func (p *Protocol) onACK(from *mpb.NodeID) {
 }
 
 func (p *Protocol) buildUpdateBatchEnvelope() *mpb.Envelope {
+	if !p.selfAlive() {
+		return nil
+	}
 	entries := p.PQ.DrainUpToBytes(budget, func(es []*mpb.MembershipEntry) (int, error) {
 		e := &mpb.Envelope{Version: 1, Sender: p.Table.GetSelf(), Type: mpb.Envelope_UPDATE_BATCH,
 			Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: es}}}

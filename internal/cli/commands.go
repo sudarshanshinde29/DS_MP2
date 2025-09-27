@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -210,8 +209,8 @@ func (c *CLI) leave() {
 		_ = c.transport.Send(dst, env)
 	}
 
-	time.Sleep(300 * time.Millisecond) // one gossip tick
-	os.Exit(0)
+	//time.Sleep(300 * time.Millisecond) // one gossip tick
+	//os.Exit(0)
 }
 
 func parseAddr(addr string) (*net.UDPAddr, error) {

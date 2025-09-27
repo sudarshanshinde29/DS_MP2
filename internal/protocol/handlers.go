@@ -143,8 +143,9 @@ func (p *Protocol) onUpdateBatch(ctx context.Context, env *mpb.Envelope, addr *n
 	p.Logf("UPDATE_BATCH recv from=%s entries=%d", addr.String(), len(b.GetEntries()))
 	for _, e := range b.GetEntries() {
 		changed := p.Table.ApplyUpdate(e)
-		p.Logf("APPLY origin=gossip from=%s node=%s state=%v inc=%d changed=%v",
-			addr.String(), membership.StringifyNodeID(e.Node), e.State, e.Incarnation, changed)
+		p.Logf("APPLY origin=gossip mode=%s from=%s node=%s state=%v inc=%d changed=%v",
+			p.modeStr(), addr.String(),
+			membership.StringifyNodeID(e.Node), e.State, e.Incarnation, changed)
 		if changed && e.State == mpb.MemberState_ALIVE {
 			// Initialize liveness for newly learned peers
 			p.Sus.OnHearFrom(membership.StringifyNodeID(e.Node), time.Now())
@@ -181,7 +182,7 @@ func nodeAddr(n *mpb.NodeID) *net.UDPAddr {
 
 // Build and send one UPDATE_BATCH within budget to selected targets
 func (p *Protocol) fanoutOnce() {
-	if p.PQ == nil {
+	if p.PQ == nil || p.Mode() != "gossip" || !p.selfAlive() {
 		return
 	}
 	entries := p.PQ.DrainUpToBytes(budget, func(es []*mpb.MembershipEntry) (int, error) {
@@ -229,4 +230,22 @@ func (p *Protocol) fanoutOnce() {
 		p.Logf("GOSSIP send to=%s", membership.StringifyNodeID(n))
 		_ = p.UDP.Send(nodeAddr(n), env)
 	}
+}
+
+func (p *Protocol) selfAlive() bool {
+	self := p.Table.GetSelf()
+	for _, e := range p.Table.Snapshot() {
+		if e.GetNode().GetIp() == self.GetIp() && e.GetNode().GetPort() == self.GetPort() {
+			return e.GetState() == mpb.MemberState_ALIVE
+		}
+	}
+	return true
+}
+
+func (p *Protocol) modeStr() string {
+	sus := "nosuspect"
+	if p.SuspicionOn() {
+		sus = "suspect"
+	}
+	return p.Mode() + " " + sus
 }
