@@ -29,7 +29,7 @@ func NewProtocol(t *membership.Table, udp *transport.UDP, logf func(string, ...i
 	p := &Protocol{Table: t, UDP: udp, PQ: NewPiggybackQueue(), Logf: logf, FanoutK: fanout}
 	p.mode = "gossip"
 	p.suspOn = false
-	p.Sus = NewSuspicion(2*time.Second, 1*time.Second, logf, t.GetSelf())
+	p.Sus = NewSuspicion(4*time.Second, 4*time.Second, logf, t.GetSelf())
 	return p
 }
 
@@ -205,7 +205,7 @@ func (p *Protocol) fanoutOnce() {
 			Type:    mpb.Envelope_UPDATE_BATCH,
 			Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{}},
 		}
-		targets := p.chooseTargets(1) // small heartbeat to 1 peer
+		targets := p.chooseTargets(p.FanoutK)
 		for _, n := range targets {
 			_ = p.UDP.Send(nodeAddr(n), hb)
 		}
