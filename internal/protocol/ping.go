@@ -63,7 +63,8 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 			}
 			timer.Stop()
 			if p.SuspicionOn() {
-				entries := p.Sus.Tick(time.Now(), p.Table.Snapshot())
+				// In ping+suspect, only promote existing suspects (from missed ACKs)
+				entries := p.Sus.TickPromote(time.Now(), p.Table.Snapshot())
 				for _, e := range entries {
 					if p.Table.ApplyUpdate(e) {
 						p.PQ.Enqueue(e)

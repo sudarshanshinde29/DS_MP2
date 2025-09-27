@@ -156,3 +156,30 @@ func (s *SuspicionManager) Tick(now time.Time, members []*mpb.MembershipEntry) [
 	}
 	return output
 }
+
+// TickPromote only promotes already-suspected nodes to DEAD when their
+// suspicion deadline expires. It does NOT create new SUSPECT entries from silence.
+// Used by ping+suspect where suspicion is initiated only by missed ACKs.
+func (s *SuspicionManager) TickPromote(now time.Time, members []*mpb.MembershipEntry) []*mpb.MembershipEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var output []*mpb.MembershipEntry
+	for key, deadline := range s.suspectAt {
+		if now.After(deadline) {
+			delete(s.suspectAt, key)
+			for _, e := range members {
+				if membership.StringifyNodeID(e.Node) == key {
+					output = append(output, &mpb.MembershipEntry{
+						Node:         e.Node,
+						State:        mpb.MemberState_DEAD,
+						Incarnation:  e.Incarnation,
+						LastUpdateMs: uint64(now.UnixMilli()),
+					})
+					s.Logf("DEAD %s", key)
+					break
+				}
+			}
+		}
+	}
+	return output
+}
