@@ -78,28 +78,28 @@ func (p *Protocol) sendPING(dst *mpb.NodeID) {
 		Sender:  p.Table.GetSelf(),
 		Type:    mpb.Envelope_PING,
 	}
-	p.Logf("PING send mode=%s dst=%s",
-		p.modeStr(), membership.StringifyNodeID(dst))
+	//p.Logf("PING send mode=%s dst=%s",
+	//	p.modeStr(), membership.StringifyNodeID(dst))
 	_ = p.UDP.Send(nodeAddr(dst), env)
 }
 
 func (p *Protocol) onPing(dst *mpb.NodeID, from *mpb.NodeID) {
 	// reply Ack, include piggyback if any
-	p.Logf("PING recv mode=%s from=%s",
-		p.modeStr(), membership.StringifyNodeID(from))
+	//p.Logf("PING recv mode=%s from=%s",
+	//	p.modeStr(), membership.StringifyNodeID(from))
 	env := p.buildUpdateBatchEnvelope()
 	if env != nil {
 		_ = p.UDP.Send(nodeAddr(from), env)
 	}
 	ack := &mpb.Envelope{Version: 1, Sender: p.Table.GetSelf(), Type: mpb.Envelope_ACK}
 	_ = p.UDP.Send(nodeAddr(from), ack)
-	p.Logf("ACK send mode=%s to=%s",
-		p.modeStr(), membership.StringifyNodeID(from))
+	//p.Logf("ACK send mode=%s to=%s",
+	//	p.modeStr(), membership.StringifyNodeID(from))
 }
 
 func (p *Protocol) onACK(from *mpb.NodeID) {
-	p.Logf("ACK recv mode=%s from=%s",
-		p.modeStr(), membership.StringifyNodeID(from))
+	//p.Logf("ACK recv mode=%s from=%s",
+	//	p.modeStr(), membership.StringifyNodeID(from))
 	// mark heard; any waiting goroutine will see this through Suspicion path
 	if p.SuspicionOn() {
 		p.Sus.OnHearFrom(membership.StringifyNodeID(from), time.Now())
