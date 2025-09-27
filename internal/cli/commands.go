@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"DS_MP2/internal/protocol"
 	"fmt"
 	"math/rand"
 	"net"
@@ -18,14 +19,62 @@ type CLI struct {
 	transport *transport.UDP
 	self      *mpb.NodeID
 	logger    func(string, ...interface{})
+	proto     *protocol.Protocol
 }
 
-func NewCLI(table *membership.Table, transport *transport.UDP, self *mpb.NodeID, logger func(string, ...interface{})) *CLI {
+func NewCLI(table *membership.Table, transport *transport.UDP, self *mpb.NodeID, logger func(string, ...interface{}), proto *protocol.Protocol) *CLI {
 	return &CLI{
 		table:     table,
 		transport: transport,
 		self:      self,
 		logger:    logger,
+		proto:     proto,
+	}
+}
+
+func (c *CLI) displayProtocol() {
+	if c.proto == nil {
+		fmt.Println("mode=gossip suspicion=off")
+		return
+	}
+	mode := c.proto.Mode()
+	sus := "nosuspect"
+	if c.proto.SuspicionOn() {
+		sus = "suspect"
+	}
+	fmt.Printf("%s %s\n", mode, sus)
+}
+
+func (c *CLI) displaySuspects() {
+	members := c.table.GetMembers()
+	fmt.Println("Suspected nodes:")
+	for _, m := range members {
+		if m.State == mpb.MemberState_SUSPECTED {
+			fmt.Printf("  %s\n", membership.StringifyNodeID(m.NodeID))
+		}
+	}
+}
+
+func (c *CLI) switchProtocol(mode, suspicion string) {
+	if c.proto == nil {
+		fmt.Println("protocol not initialized")
+		return
+	}
+	if mode != "gossip" && mode != "ping" {
+		fmt.Println("mode must be gossip|ping")
+		return
+	}
+	c.proto.SetMode(mode)
+	c.logger("Switched mode to %s", mode)
+	switch suspicion {
+	case "suspect":
+		c.proto.SetSuspicion(true)
+		c.logger("Suspicion ON")
+	case "nosuspect":
+		c.proto.SetSuspicion(false)
+		c.logger("Suspicion OFF")
+	default:
+		fmt.Println("suspicion must be suspect|nosuspect")
 	}
 }
 
@@ -159,20 +208,6 @@ func (c *CLI) leave() {
 		dst := &net.UDPAddr{IP: net.ParseIP(n.GetIp()), Port: int(n.GetPort())}
 		_ = c.transport.Send(dst, env)
 	}
-}
-
-func (c *CLI) displaySuspects() {
-	// Implement when we add suspicion mechanism
-
-}
-
-func (c *CLI) displayProtocol() {
-	// Implement when we add protocol switching
-}
-
-func (c *CLI) switchProtocol(mode, suspicion string) {
-	// Implement when we add protocol switching
-
 }
 
 func parseAddr(addr string) (*net.UDPAddr, error) {

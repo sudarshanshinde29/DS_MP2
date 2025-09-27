@@ -84,7 +84,9 @@ const (
 	Envelope_MESSAGE_TYPE_UNSPECIFIED Envelope_MessageType = 0
 	Envelope_JOIN                     Envelope_MessageType = 1
 	Envelope_JOIN_ACK                 Envelope_MessageType = 2
-	Envelope_UPDATE_BATCH             Envelope_MessageType = 3 // Future extensions (not used in the minimal base): HEARTBEAT = 10; PING = 11; ACK = 12;
+	Envelope_UPDATE_BATCH             Envelope_MessageType = 3
+	Envelope_PING                     Envelope_MessageType = 4
+	Envelope_ACK                      Envelope_MessageType = 5
 )
 
 // Enum value maps for Envelope_MessageType.
@@ -94,12 +96,16 @@ var (
 		1: "JOIN",
 		2: "JOIN_ACK",
 		3: "UPDATE_BATCH",
+		4: "PING",
+		5: "ACK",
 	}
 	Envelope_MessageType_value = map[string]int32{
 		"MESSAGE_TYPE_UNSPECIFIED": 0,
 		"JOIN":                     1,
 		"JOIN_ACK":                 2,
 		"UPDATE_BATCH":             3,
+		"PING":                     4,
+		"ACK":                      5,
 	}
 )
 
@@ -571,7 +577,7 @@ const file_membership_proto_rawDesc = "" +
 	"\vincarnation\x18\x03 \x01(\x04R\vincarnation\x12$\n" +
 	"\x0elast_update_ms\x18\x04 \x01(\x04R\flastUpdateMs\"D\n" +
 	"\vUpdateBatch\x125\n" +
-	"\aentries\x18\x01 \x03(\v2\x1b.membership.MembershipEntryR\aentries\"\x9f\x03\n" +
+	"\aentries\x18\x01 \x03(\v2\x1b.membership.MembershipEntryR\aentries\"\xb2\x03\n" +
 	"\bEnvelope\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12*\n" +
 	"\x06sender\x18\x02 \x01(\v2\x12.membership.NodeIDR\x06sender\x124\n" +
@@ -581,12 +587,14 @@ const file_membership_proto_rawDesc = "" +
 	"\x04join\x18\n" +
 	" \x01(\v2\x10.membership.JoinH\x00R\x04join\x120\n" +
 	"\bjoin_ack\x18\v \x01(\v2\x13.membership.JoinAckH\x00R\ajoinAck\x12<\n" +
-	"\fupdate_batch\x18\f \x01(\v2\x17.membership.UpdateBatchH\x00R\vupdateBatch\"U\n" +
+	"\fupdate_batch\x18\f \x01(\v2\x17.membership.UpdateBatchH\x00R\vupdateBatch\"h\n" +
 	"\vMessageType\x12\x1c\n" +
 	"\x18MESSAGE_TYPE_UNSPECIFIED\x10\x00\x12\b\n" +
 	"\x04JOIN\x10\x01\x12\f\n" +
 	"\bJOIN_ACK\x10\x02\x12\x10\n" +
-	"\fUPDATE_BATCH\x10\x03B\t\n" +
+	"\fUPDATE_BATCH\x10\x03\x12\b\n" +
+	"\x04PING\x10\x04\x12\a\n" +
+	"\x03ACK\x10\x05B\t\n" +
 	"\apayload\"G\n" +
 	"\x04Join\x12&\n" +
 	"\x04node\x18\x01 \x01(\v2\x12.membership.NodeIDR\x04node\x12\x17\n" +

@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"DS_MP2/internal/membership"
+	mpb "DS_MP2/protoBuilds/membership"
 	"context"
 	"time"
 )
@@ -28,6 +30,43 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 				return
 			// on each tick, call p.fanoutOnce() to send one UPDATE_BATCH to k random peers, then reset timer with a new jittered period.
 			case <-timer.C:
+				if p.SuspicionOn() {
+					entries := p.Sus.Tick(time.Now(), p.Table.Snapshot())
+					for _, e := range entries {
+						if p.Table.ApplyUpdate(e) {
+							p.PQ.Enqueue(e)
+						}
+					}
+				} else {
+					now := time.Now()
+					snap := p.Table.Snapshot()
+					self := p.Table.GetSelf()
+					for _, e := range snap {
+						if e.State != mpb.MemberState_ALIVE {
+							continue
+						}
+						if e.Node.GetIp() == self.GetIp() && e.Node.GetPort() == self.GetPort() {
+							continue
+						}
+
+						key := membership.StringifyNodeID(e.Node)
+						// First-seen grace: init lastHeard, skip this round
+						if !p.Sus.HeardSince(key, time.Time{}) {
+							p.Sus.OnHearFrom(key, now)
+							continue
+						}
+						// Mark DEAD only if truly silent for > Tfail
+						if !p.Sus.HeardSince(key, now.Add(-p.Sus.Tfail)) {
+							dead := &mpb.MembershipEntry{
+								Node: e.Node, State: mpb.MemberState_DEAD,
+								Incarnation: e.Incarnation, LastUpdateMs: uint64(now.UnixMilli()),
+							}
+							if p.Table.ApplyUpdate(dead) {
+								p.PQ.Enqueue(dead)
+							}
+						}
+					}
+				}
 				p.fanoutOnce()
 				timer.Reset(randJitter())
 			}

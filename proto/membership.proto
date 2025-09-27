@@ -47,7 +47,8 @@ message Envelope {
     JOIN = 1;
     JOIN_ACK = 2;
     UPDATE_BATCH = 3;
-    // Future extensions (not used in the minimal base): HEARTBEAT = 10; PING = 11; ACK = 12;
+    PING = 4;
+    ACK = 5;
   }
   MessageType type = 3;
 

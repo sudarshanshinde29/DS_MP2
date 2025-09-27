@@ -20,13 +20,29 @@ type Protocol struct {
 	PQ      *PiggybackQueue
 	Logf    func(string, ...interface{})
 	FanoutK int
+	Sus     *SuspicionManager
+	mode    string
+	suspOn  bool
 }
 
 func NewProtocol(t *membership.Table, udp *transport.UDP, logf func(string, ...interface{}), fanout int) *Protocol {
-	return &Protocol{Table: t, UDP: udp, PQ: NewPiggybackQueue(), Logf: logf, FanoutK: fanout}
+	p := &Protocol{Table: t, UDP: udp, PQ: NewPiggybackQueue(), Logf: logf, FanoutK: fanout}
+	p.mode = "gossip"
+	p.suspOn = false
+	p.Sus = NewSuspicion(2*time.Second, 1*time.Second, logf, t.GetSelf())
+	return p
 }
 
+func (p *Protocol) Mode() string         { return p.mode }
+func (p *Protocol) SuspicionOn() bool    { return p.suspOn }
+func (p *Protocol) SetMode(m string)     { p.mode = m }
+func (p *Protocol) SetSuspicion(on bool) { p.suspOn = on }
+
 func (p *Protocol) Handle(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {
+	if env.GetSender() != nil {
+		p.Sus.OnHearFrom(membership.StringifyNodeID(env.GetSender()), time.Now())
+	}
+
 	switch env.GetType() {
 	case mpb.Envelope_JOIN:
 		p.onJoin(ctx, env, addr)
@@ -34,6 +50,10 @@ func (p *Protocol) Handle(ctx context.Context, env *mpb.Envelope, addr *net.UDPA
 		p.onJoinAck(ctx, env, addr)
 	case mpb.Envelope_UPDATE_BATCH:
 		p.onUpdateBatch(ctx, env, addr)
+	case mpb.Envelope_PING:
+		p.onPing(p.Table.GetSelf(), env.Sender)
+	case mpb.Envelope_ACK:
+		p.onACK(env.GetSender())
 	default:
 		// ignore
 	}
@@ -117,11 +137,18 @@ func (p *Protocol) onUpdateBatch(ctx context.Context, env *mpb.Envelope, addr *n
 	if b == nil {
 		return
 	}
+	if len(b.GetEntries()) == 0 {
+		return
+	} // ignore heartbeat batches
 	p.Logf("UPDATE_BATCH recv from=%s entries=%d", addr.String(), len(b.GetEntries()))
 	for _, e := range b.GetEntries() {
 		changed := p.Table.ApplyUpdate(e)
 		p.Logf("APPLY origin=gossip from=%s node=%s state=%v inc=%d changed=%v",
 			addr.String(), membership.StringifyNodeID(e.Node), e.State, e.Incarnation, changed)
+		if changed && e.State == mpb.MemberState_ALIVE {
+			// Initialize liveness for newly learned peers
+			p.Sus.OnHearFrom(membership.StringifyNodeID(e.Node), time.Now())
+		}
 		if changed && p.PQ != nil {
 			p.PQ.Enqueue(e)
 		}
@@ -171,6 +198,17 @@ func (p *Protocol) fanoutOnce() {
 		return len(b), nil
 	})
 	if len(entries) == 0 {
+		// send empty UPDATE_BATCH as heartbeat
+		hb := &mpb.Envelope{
+			Version: 1,
+			Sender:  p.Table.GetSelf(),
+			Type:    mpb.Envelope_UPDATE_BATCH,
+			Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{}},
+		}
+		targets := p.chooseTargets(1) // small heartbeat to 1 peer
+		for _, n := range targets {
+			_ = p.UDP.Send(nodeAddr(n), hb)
+		}
 		return
 	}
 	env := &mpb.Envelope{

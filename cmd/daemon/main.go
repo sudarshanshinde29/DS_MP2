@@ -63,9 +63,6 @@ func main() {
 	}
 	defer udp.Close()
 
-	// Create CLI
-	cli := cli.NewCLI(table, udp, self, logger)
-
 	protoPtr = protocol.NewProtocol(table, udp, logger, fanout)
 	protoPtr.PQ.Enqueue(&mpb.MembershipEntry{
 		Node:         table.GetSelf(),
@@ -84,9 +81,12 @@ func main() {
 		}
 	}()
 
+	cli := cli.NewCLI(table, udp, self, logger, protoPtr)
 	// Start gossip
 	// Periodic gossip every 300ms with 10% jitter
 	protocol.StartGossip(ctx, protoPtr, 300*time.Millisecond, 0.10)
+
+	go protoPtr.StartPingAck(ctx, 300*time.Millisecond, 300*time.Millisecond)
 
 	logger("Daemon started on %s", bindAddr)
 	logger("Self: %s", membership.StringifyNodeID(self))

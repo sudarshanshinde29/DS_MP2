@@ -1,0 +1,119 @@
+package protocol
+
+import (
+	"DS_MP2/internal/membership"
+	mpb "DS_MP2/protoBuilds/membership"
+	"sync"
+	"time"
+)
+
+type SuspicionManager struct {
+	mu        sync.Mutex
+	lastHeard map[string]time.Time
+	suspectAt map[string]time.Time
+	failAt    map[string]time.Time
+	Tfail     time.Duration
+	Tcleanup  time.Duration
+	Logf      func(string, ...interface{})
+	Self      *mpb.NodeID
+}
+
+func NewSuspicion(tfail, tcleanup time.Duration, logf func(string, ...interface{}), self *mpb.NodeID) *SuspicionManager {
+	return &SuspicionManager{
+		lastHeard: make(map[string]time.Time),
+		suspectAt: make(map[string]time.Time),
+		failAt:    make(map[string]time.Time),
+		Tfail:     tfail,
+		Tcleanup:  tcleanup,
+		Logf:      logf,
+		Self:      self,
+	}
+}
+
+// Call whenever we receive any message from nodeKey.
+func (s *SuspicionManager) OnHearFrom(nodeKey string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastHeard[nodeKey] = now
+	delete(s.suspectAt, nodeKey)
+	delete(s.failAt, nodeKey)
+}
+
+func (s *SuspicionManager) HeardSince(key string, since time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastHeard[key].After(since)
+}
+
+// Call when a probe to nodeKey fails (PingAck path)
+// Returns a SUSPECT entry to disseminate (or nil if already suspected)
+func (s *SuspicionManager) OnNoAck(nodeKey string, node *mpb.NodeID, now time.Time) *mpb.MembershipEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.suspectAt[nodeKey]; ok {
+		return nil
+	}
+	s.suspectAt[nodeKey] = now.Add(s.Tfail)
+	s.Logf("SUSPECT %s", nodeKey)
+	return &mpb.MembershipEntry{
+		Node:         node,
+		State:        mpb.MemberState_SUSPECTED,
+		Incarnation:  node.GetIncarnation(),
+		LastUpdateMs: uint64(now.UnixMilli()),
+	}
+}
+
+// Tick drives promotions: gossip-silence -> SUSPECT; SUSPECT -> FAULTY after Tfail and Tcleanup.
+// Returns entries to disseminate (0, 1, or many).
+func (s *SuspicionManager) Tick(now time.Time, members []*mpb.MembershipEntry) []*mpb.MembershipEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var output []*mpb.MembershipEntry
+
+	// Mark suspect -> failed if more than Tfail has passed
+	for _, e := range members {
+		key := membership.StringifyNodeID(e.Node)
+		// only consider ALIVE peers for new suspicion
+		if e.Node.GetIp() == s.Self.GetIp() && e.Node.GetPort() == s.Self.GetPort() {
+			continue
+		}
+		if e.State != mpb.MemberState_ALIVE {
+			continue
+		}
+		last := s.lastHeard[key]
+		// silence beyond Tfail => enter SUSPECT
+		if last.IsZero() || now.Sub(last) > s.Tfail {
+			if _, already := s.suspectAt[key]; !already {
+				s.suspectAt[key] = now.Add(s.Tcleanup) // promote after Tcleanup
+				s.Logf("SUSPECT %s (silence)", key)
+				output = append(output, &mpb.MembershipEntry{
+					Node:         e.Node,
+					State:        mpb.MemberState_SUSPECTED,
+					Incarnation:  e.Incarnation,
+					LastUpdateMs: uint64(now.UnixMilli()),
+				})
+			}
+		}
+	}
+
+	// Promote expired SUSPECT to DEAD
+	for key, deadline := range s.suspectAt {
+		if now.After(deadline) {
+			delete(s.suspectAt, key)
+			// We must find the nodeId from members param
+			for _, e := range members {
+				if membership.StringifyNodeID(e.Node) == key {
+					output = append(output, &mpb.MembershipEntry{
+						Node:         e.Node,
+						State:        mpb.MemberState_DEAD,
+						Incarnation:  e.Incarnation,
+						LastUpdateMs: uint64(now.UnixMilli()),
+					})
+					s.Logf("DEAD %s", key)
+					break
+				}
+			}
+		}
+	}
+	return output
+}
