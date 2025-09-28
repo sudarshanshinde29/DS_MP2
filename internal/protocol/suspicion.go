@@ -34,6 +34,12 @@ func NewSuspicion(tfail, tcleanup time.Duration, logf func(string, ...interface{
 func (s *SuspicionManager) OnHearFrom(nodeKey string, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// If this node was suspected or under no-suspect fail timer, log refutation
+	_, wasSus := s.suspectAt[nodeKey]
+	_, hadFail := s.failAt[nodeKey]
+	if wasSus || hadFail {
+		s.Logf("Was sus %s (heard again)", nodeKey)
+	}
 	s.lastHeard[nodeKey] = now
 	delete(s.suspectAt, nodeKey)
 	delete(s.failAt, nodeKey)
