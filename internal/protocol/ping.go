@@ -48,7 +48,7 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 					continue
 				}
 				if p.SuspicionOn() && !p.Sus.HeardSince(key, sentAt) {
-					p.Logf("DETECT origin=ping mode=%s reason=no-ack node=%s action=SUSPECT",
+					p.Logf("DETECT mode=%s reason=no-ack node=%s action=SUSPECT",
 						p.modeStr(), membership.StringifyNodeID(dst))
 					if e := p.Sus.OnNoAck(key, dst, time.Now()); e != nil {
 						p.PQ.Enqueue(e)

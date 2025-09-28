@@ -40,7 +40,7 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 					entries := p.Sus.Tick(time.Now(), p.Table.Snapshot())
 					for _, e := range entries {
 						if p.Table.ApplyUpdate(e) {
-							p.Logf("DETECT origin=gossip mode=%s node=%s new_state=%v",
+							p.Logf("DETECT mode=%s node=%s new_state=%v",
 								p.modeStr(), membership.StringifyNodeID(e.Node), e.State)
 							p.PQ.Enqueue(e)
 						}
@@ -70,7 +70,7 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 								Incarnation: e.Incarnation, LastUpdateMs: uint64(now.UnixMilli()),
 							}
 							if p.Table.ApplyUpdate(dead) {
-								p.Logf("DETECT origin=gossip mode=%s reason=silence>tfail node=%s new_state=DEAD",
+								p.Logf("DETECT mode=%s reason=silence>tfail node=%s new_state=DEAD",
 									p.modeStr(), membership.StringifyNodeID(e.Node))
 								p.PQ.Enqueue(dead)
 							}

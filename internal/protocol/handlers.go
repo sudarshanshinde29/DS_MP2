@@ -195,7 +195,7 @@ func (p *Protocol) onUpdateBatch(ctx context.Context, env *mpb.Envelope, addr *n
 		}
 
 		changed := p.Table.ApplyUpdate(e)
-		p.Logf("APPLY origin=gossip mode=%s from=%s node=%s state=%v inc=%d changed=%v source=%s",
+		p.Logf("APPLY mode=%s from=%s node=%s state=%v inc=%d changed=%v source=%s",
 			p.modeStr(), addr.String(),
 			membership.StringifyNodeID(e.Node), e.State, e.Incarnation, changed, source)
 		if changed && e.State == mpb.MemberState_ALIVE {
