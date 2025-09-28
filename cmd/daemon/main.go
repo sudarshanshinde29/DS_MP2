@@ -45,7 +45,7 @@ func main() {
 	// Create membership table
 	table := membership.NewTable(self, logger)
 
-	fanout := 3
+	fanout := 12
 	var protoPtr *protocol.Protocol
 
 	handler := func(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {

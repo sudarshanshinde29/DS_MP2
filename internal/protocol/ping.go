@@ -79,7 +79,7 @@ func (p *Protocol) StartPingAck(ctx context.Context, period time.Duration, ackMs
 				}
 			}
 			// GC DEAD entries periodically (same as gossip loop)
-			_ = p.Table.GCStates(5*time.Second, false)
+			_ = p.Table.GCStates(5*time.Second, true)
 			t.Reset(period)
 		}
 	}
