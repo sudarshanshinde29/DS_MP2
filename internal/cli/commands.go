@@ -114,6 +114,8 @@ func (c *CLI) HandleCommand(cmd string) {
 		// If we just enabled suspicion, initialize grace for peers we haven't heard from
 		if c.proto != nil && !prevSus && c.proto.SuspicionOn() {
 			c.proto.InitSuspicionGrace()
+			// Start a brief grace window to avoid cold-start false SUSPECTs
+			c.proto.Sus.StartGrace(2 * time.Second)
 			c.logger("Initialized suspicion grace for ALIVE peers")
 		}
 	default:

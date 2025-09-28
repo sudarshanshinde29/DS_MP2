@@ -16,6 +16,9 @@ type SuspicionManager struct {
 	Tcleanup  time.Duration
 	Logf      func(string, ...interface{})
 	Self      *mpb.NodeID
+	// GraceUntil: before this time, Tick will not create new SUSPECTs from silence.
+	// It still promotes already-suspected nodes to DEAD.
+	GraceUntil time.Time
 }
 
 func NewSuspicion(tfail, tcleanup time.Duration, logf func(string, ...interface{}), self *mpb.NodeID) *SuspicionManager {
@@ -43,6 +46,15 @@ func (s *SuspicionManager) OnHearFrom(nodeKey string, now time.Time) {
 	s.lastHeard[nodeKey] = now
 	delete(s.suspectAt, nodeKey)
 	delete(s.failAt, nodeKey)
+}
+
+// StartGrace sets a temporary window during which Tick will not create
+// new SUSPECT entries from silence. Use when enabling suspicion to avoid
+// cold-start mass suspicion. Promotions still occur.
+func (s *SuspicionManager) StartGrace(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.GraceUntil = time.Now().Add(d)
 }
 
 func (s *SuspicionManager) HeardSince(key string, since time.Time) bool {
@@ -123,6 +135,10 @@ func (s *SuspicionManager) Tick(now time.Time, members []*mpb.MembershipEntry) [
 			continue
 		}
 		if e.State != mpb.MemberState_ALIVE {
+			continue
+		}
+		// If we are within grace, do not create new SUSPECTs from silence
+		if now.Before(s.GraceUntil) {
 			continue
 		}
 		last := s.lastHeard[key]
