@@ -198,15 +198,21 @@ func (c *CLI) leave() {
 
 	batch := &mpb.UpdateBatch{Entries: []*mpb.MembershipEntry{entry}}
 	env := &mpb.Envelope{
-		Version: 1,
-		Sender:  c.self,
-		Type:    mpb.Envelope_UPDATE_BATCH,
-		Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: batch},
+		Version:   1,
+		Sender:    c.self,
+		Type:      mpb.Envelope_UPDATE_BATCH,
+		RequestId: "leavepush",
+		Payload:   &mpb.Envelope_UpdateBatch{UpdateBatch: batch},
 	}
 
 	for _, n := range peers[:k] {
 		dst := &net.UDPAddr{IP: net.ParseIP(n.GetIp()), Port: int(n.GetPort())}
 		_ = c.transport.Send(dst, env)
+	}
+
+	// Also piggyback the LEFT entry to spread via pings
+	if c.proto != nil && c.proto.PQ != nil {
+		c.proto.PQ.Enqueue(entry)
 	}
 
 	//time.Sleep(300 * time.Millisecond) // one gossip tick

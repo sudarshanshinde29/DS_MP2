@@ -114,10 +114,11 @@ func (p *Protocol) onJoin(ctx context.Context, env *mpb.Envelope, addr *net.UDPA
 		entries := p.Table.Snapshot()
 		if len(entries) > 0 {
 			env := &mpb.Envelope{
-				Version: 1,
-				Sender:  p.Table.GetSelf(),
-				Type:    mpb.Envelope_UPDATE_BATCH,
-				Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
+				Version:   1,
+				Sender:    p.Table.GetSelf(),
+				Type:      mpb.Envelope_UPDATE_BATCH,
+				RequestId: "joinpush",
+				Payload:   &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
 			}
 			if wire, err := proto.Marshal(env); err == nil && len(wire) <= budget {
 				_ = p.UDP.Send(addr, env)
@@ -157,7 +158,11 @@ func (p *Protocol) onUpdateBatch(ctx context.Context, env *mpb.Envelope, addr *n
 	if len(b.GetEntries()) == 0 {
 		return
 	} // ignore heartbeat batches
-	p.Logf("UPDATE_BATCH recv from=%s entries=%d", addr.String(), len(b.GetEntries()))
+	source := env.GetRequestId()
+	if source == "" {
+		source = "unknown"
+	}
+	p.Logf("UPDATE_BATCH recv from=%s entries=%d source=%s", addr.String(), len(b.GetEntries()), source)
 	for _, e := range b.GetEntries() {
 		// Ignore remote attempts to change our own state unless it's ALIVE with
 		// an equal or higher incarnation. Prevents peers from marking us SUSPECT/DEAD.
@@ -169,9 +174,9 @@ func (p *Protocol) onUpdateBatch(ctx context.Context, env *mpb.Envelope, addr *n
 		}
 
 		changed := p.Table.ApplyUpdate(e)
-		p.Logf("APPLY origin=gossip mode=%s from=%s node=%s state=%v inc=%d changed=%v",
+		p.Logf("APPLY origin=gossip mode=%s from=%s node=%s state=%v inc=%d changed=%v source=%s",
 			p.modeStr(), addr.String(),
-			membership.StringifyNodeID(e.Node), e.State, e.Incarnation, changed)
+			membership.StringifyNodeID(e.Node), e.State, e.Incarnation, changed, source)
 		if changed && e.State == mpb.MemberState_ALIVE {
 			// Initialize liveness for newly learned peers
 			p.Sus.OnHearFrom(membership.StringifyNodeID(e.Node), time.Now())
@@ -239,10 +244,11 @@ func (p *Protocol) fanoutOnce() {
 		return
 	}
 	env := &mpb.Envelope{
-		Version: 1,
-		Sender:  p.Table.GetSelf(),
-		Type:    mpb.Envelope_UPDATE_BATCH,
-		Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
+		Version:   1,
+		Sender:    p.Table.GetSelf(),
+		Type:      mpb.Envelope_UPDATE_BATCH,
+		RequestId: "gossip",
+		Payload:   &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
 	}
 	wire, err := proto.Marshal(env)
 	if err != nil || len(wire) > budget {

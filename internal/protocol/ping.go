@@ -125,7 +125,8 @@ func (p *Protocol) buildUpdateBatchEnvelope() *mpb.Envelope {
 	}
 	entries := p.PQ.DrainUpToBytes(budget, func(es []*mpb.MembershipEntry) (int, error) {
 		e := &mpb.Envelope{Version: 1, Sender: p.Table.GetSelf(), Type: mpb.Envelope_UPDATE_BATCH,
-			Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: es}}}
+			RequestId: "piggyback",
+			Payload:   &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: es}}}
 		b, err := proto.Marshal(e)
 		if err != nil {
 			return 0, err
@@ -136,9 +137,10 @@ func (p *Protocol) buildUpdateBatchEnvelope() *mpb.Envelope {
 		return nil
 	}
 	return &mpb.Envelope{
-		Version: 1,
-		Sender:  p.Table.GetSelf(),
-		Type:    mpb.Envelope_UPDATE_BATCH,
-		Payload: &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
+		Version:   1,
+		Sender:    p.Table.GetSelf(),
+		Type:      mpb.Envelope_UPDATE_BATCH,
+		RequestId: "piggyback",
+		Payload:   &mpb.Envelope_UpdateBatch{UpdateBatch: &mpb.UpdateBatch{Entries: entries}},
 	}
 }
