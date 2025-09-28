@@ -38,6 +38,27 @@ func (p *Protocol) SuspicionOn() bool    { return p.suspOn }
 func (p *Protocol) SetMode(m string)     { p.mode = m }
 func (p *Protocol) SetSuspicion(on bool) { p.suspOn = on }
 
+// InitSuspicionGrace initializes last-heard timestamps for ALIVE peers we have
+// never heard from before, to avoid immediate SUSPECT storms when suspicion is
+// enabled. Peers we have heard from already keep their original last-heard so
+// real silence is still detected promptly.
+func (p *Protocol) InitSuspicionGrace() {
+	now := time.Now()
+	self := p.Table.GetSelf()
+	for _, e := range p.Table.Snapshot() {
+		if e.State != mpb.MemberState_ALIVE {
+			continue
+		}
+		if e.Node.GetIp() == self.GetIp() && e.Node.GetPort() == self.GetPort() {
+			continue
+		}
+		key := membership.StringifyNodeID(e.Node)
+		if !p.Sus.HeardSince(key, time.Time{}) {
+			p.Sus.OnHearFrom(key, now)
+		}
+	}
+}
+
 func (p *Protocol) Handle(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr) {
 	if env.GetSender() != nil {
 		p.Sus.OnHearFrom(membership.StringifyNodeID(env.GetSender()), time.Now())

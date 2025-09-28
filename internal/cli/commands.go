@@ -106,7 +106,16 @@ func (c *CLI) HandleCommand(cmd string) {
 			fmt.Println("Usage: switch <gossip|ping> <suspect|nosuspect>")
 			return
 		}
+		prevSus := false
+		if c.proto != nil {
+			prevSus = c.proto.SuspicionOn()
+		}
 		c.switchProtocol(parts[1], parts[2])
+		// If we just enabled suspicion, initialize grace for peers we haven't heard from
+		if c.proto != nil && !prevSus && c.proto.SuspicionOn() {
+			c.proto.InitSuspicionGrace()
+			c.logger("Initialized suspicion grace for ALIVE peers")
+		}
 	default:
 		fmt.Printf("Unknown command: %s\n", parts[0])
 	}
