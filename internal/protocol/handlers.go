@@ -159,6 +159,15 @@ func (p *Protocol) onUpdateBatch(ctx context.Context, env *mpb.Envelope, addr *n
 	} // ignore heartbeat batches
 	p.Logf("UPDATE_BATCH recv from=%s entries=%d", addr.String(), len(b.GetEntries()))
 	for _, e := range b.GetEntries() {
+		// Ignore remote attempts to change our own state unless it's ALIVE with
+		// an equal or higher incarnation. Prevents peers from marking us SUSPECT/DEAD.
+		self := p.Table.GetSelf()
+		if e.GetNode().GetIp() == self.GetIp() && e.GetNode().GetPort() == self.GetPort() {
+			if e.GetState() != mpb.MemberState_ALIVE || e.GetIncarnation() < self.GetIncarnation() {
+				continue
+			}
+		}
+
 		changed := p.Table.ApplyUpdate(e)
 		p.Logf("APPLY origin=gossip mode=%s from=%s node=%s state=%v inc=%d changed=%v",
 			p.modeStr(), addr.String(),

@@ -30,6 +30,8 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 				return
 			// on each tick, call p.fanoutOnce() to send one UPDATE_BATCH to k random peers, then reset timer with a new jittered period.
 			case <-timer.C:
+				// Always run GC periodically regardless of mode to avoid DEAD entries lingering
+				_ = p.Table.GCStates(5*time.Second, false)
 				if p.Mode() != "gossip" || !p.selfAlive() {
 					timer.Reset(randJitter())
 					continue
@@ -75,8 +77,7 @@ func StartGossip(ctx context.Context, p *Protocol, period time.Duration, jitterF
 						}
 					}
 				}
-				// GC: remove DEAD after TTL; keep LEFT (set second arg true if you also want to purge LEFT later)
-				_ = p.Table.GCStates(5*time.Second, false)
+				// GC already executed at the top of the tick
 
 				p.fanoutOnce()
 				timer.Reset(randJitter())
