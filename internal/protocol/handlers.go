@@ -158,7 +158,7 @@ func (p *Protocol) onJoinAck(ctx context.Context, env *mpb.Envelope, addr *net.U
 		addr.String(), membership.StringifyNodeID(env.GetSender()), len(ack.GetMembershipSnapshot()))
 
 	if n := p.Table.MergeSnapshot(ack.GetMembershipSnapshot()); n > 0 && p.PQ != nil {
-		// Optionally enqueue self ALIVE to speed spread
+		// Enqueue self ALIVE and immediately fan out once so peers hear directly from us
 		self := p.Table.GetSelf()
 		p.PQ.Enqueue(&mpb.MembershipEntry{
 			Node:         self,
@@ -167,6 +167,8 @@ func (p *Protocol) onJoinAck(ctx context.Context, env *mpb.Envelope, addr *net.U
 			LastUpdateMs: uint64(time.Now().UnixMilli()),
 		})
 		p.Logf("JOIN_ACK merge applied=%d", n)
+		// Immediate fanout helps prevent premature SUSPECT due to initial silence
+		p.fanoutOnce()
 	}
 
 }
