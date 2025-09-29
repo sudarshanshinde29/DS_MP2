@@ -5,9 +5,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -16,6 +18,11 @@ import (
 	"DS_MP2/internal/transport"
 	mpb "DS_MP2/protoBuilds/membership"
 )
+
+// DefaultLogDir: set this to a non-empty path to force logs for every node
+// into a single directory even when LOG_DIR env is not provided.
+// Example: const DefaultLogDir = "/var/tmp/ds_mp2/logs"
+const DefaultLogDir = "root/logs"
 
 func main() {
 	if len(os.Args) < 3 {
@@ -35,6 +42,25 @@ func main() {
 	self, err := membership.NewNodeID(ip, uint32(port), incarnation)
 	if err != nil {
 		log.Fatalf("Invalid node ID: %v", err)
+	}
+
+	// Optional file logging: if LOG_DIR is set, also write logs to LOG_DIR/<ip>_<port>.log
+	dir := os.Getenv("LOG_DIR")
+	if dir == "" && DefaultLogDir != "" {
+		dir = DefaultLogDir
+	}
+	if dir != "" {
+		_ = os.MkdirAll(dir, 0755)
+		fname := fmt.Sprintf("failure.log", ip, port)
+		fpath := filepath.Join(dir, fname)
+		f, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err == nil {
+			// Write to both stdout and file
+			log.SetOutput(io.MultiWriter(os.Stdout, f))
+			defer f.Close()
+		} else {
+			fmt.Printf("warning: failed to open log file %s: %v\n", fpath, err)
+		}
 	}
 
 	// Create logger
