@@ -1,23 +1,24 @@
 # Distributed Systems Membership Protocol (DS_MP2)
 
-A Go-based implementation of a distributed membership protocol for managing node membership in a distributed system. This project implements a gossip-based membership protocol with support for node joining, leaving, and failure detection.
+A Go-based implementation of a distributed membership protocol for managing node membership in a distributed system. The project implements both Gossip-style heartbeating and Ping-Ack (SWIM-style probing), each with an optional Suspicion mechanism, plus node joining, leaving, and failure detection.
 
 ## Features
 
 - **Node Management**: Join and leave operations for distributed nodes
-- **Membership Table**: Thread-safe membership tracking with state management
-- **UDP Transport**: Reliable UDP-based communication with configurable drop rates
+- **Membership Table**: Thread-safe membership tracking with state management and GC of terminal states
+- **UDP Transport**: UDP messaging with configurable receive drop rate (for experiments)
 - **Protobuf Communication**: Efficient binary serialization for network messages
-- **CLI Interface**: Interactive command-line interface for testing and debugging
+- **CLI Interface**: Interactive command-line interface for testing and experiments
 
 ## Architecture
 
 ```
 ├── cmd/daemon/          # Main application entry point
 ├── internal/
-│   ├── cli/            # Command-line interface
-│   ├── membership/     # Membership table and node management
-│   └── transport/      # UDP transport layer
+│   ├── cli/            # Command-line interface and commands
+│   ├── membership/     # Membership table, states, GC, snapshots
+│   ├── protocol/       # Gossip, Ping-Ack, handlers, suspicion manager, piggyback
+│   └── transport/      # UDP transport (drop injection for receive path)
 ├── proto/              # Protocol buffer definitions
 └── protoBuilds/        # Generated protobuf code
 ```
@@ -70,14 +71,22 @@ make build
 ./daemon 127.0.0.1 6002 127.0.0.1:6001
 ```
 
+### Logging
+- By default logs go to stdout. To additionally write to a file, set environment variable `LOG_DIR` (or hard-code `DefaultLogDir` in `cmd/daemon/main.go`).
+- Each node writes to `<LOG_DIR>/<ip>_<port>.log` while still printing to the terminal.
+
 ### Available Commands
 
 Once the daemon is running, you can use these CLI commands:
 
-- `list_self` - Display current node information
-- `list_mem` - List all members in the membership table
-- `join <introducer_ip:port>` - Join the group via an introducer
-- `leave` - Leave the group
+- `list_self` — Display current node information
+- `list_mem` — List all members in the membership table
+- `join <introducer_ip:port>` — Join the group via an introducer
+- `leave` — Voluntarily leave (LEFT state with higher incarnation; fanned out)
+- `switch <gossip|ping> <suspect|nosuspect>` — Switch dissemination and suspicion mode
+- `display_protocol` — Print current mode and suspicion flag
+- `display_suspects` — Print locally SUSPECTED nodes
+- `drop <rate>` — Set per-process receive drop rate in [0,1] (for experiments)
 
 ### Example Session
 
@@ -85,14 +94,14 @@ Once the daemon is running, you can use these CLI commands:
 $ ./daemon 127.0.0.1 6001
 [127.0.0.1:6001#1703123456789] Daemon started on 127.0.0.1:6001
 [127.0.0.1:6001#1703123456789] Self: 127.0.0.1:6001#1703123456789
-> list_self
-Self: 127.0.0.1:6001#1703123456789
+> display_protocol
+ping nosuspect
+> switch gossip suspect
 > list_mem
-Membership list (1 members):
-  127.0.0.1:6001#1703123456789: state=ALIVE incarnation=1703123456789 last_update=14:30:56
+...
 ```
 
 ## Configuration
 
-The `cluster.properties` file contains configuration for a 10-node cluster setup. You can modify this file to change the cluster topology.
-
+- The `cluster.properties` file contains an example topology. Most behavior is controlled at runtime via CLI commands.
+- Key timers: set in `internal/protocol/handlers.go` via `protocol.NewProtocol` (defaults: period≈300ms; suspicion Tfail≈1s, Tcleanup≈1s). Adjust only if required by experiments.
