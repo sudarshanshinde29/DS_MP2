@@ -142,8 +142,13 @@ func (s *SuspicionManager) Tick(now time.Time, members []*mpb.MembershipEntry) [
 			continue
 		}
 		last := s.lastHeard[key]
+		// First-seen grace: initialize lastHeard for newly learned peers and skip
+		if last.IsZero() {
+			s.lastHeard[key] = now
+			continue
+		}
 		// silence beyond Tfail => enter SUSPECT
-		if last.IsZero() || now.Sub(last) > s.Tfail {
+		if now.Sub(last) > s.Tfail {
 			if _, already := s.suspectAt[key]; !already {
 				s.suspectAt[key] = now.Add(s.Tcleanup) // promote after Tcleanup
 				s.Logf("SUSPECT %s (silence)", key)
