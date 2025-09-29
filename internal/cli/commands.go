@@ -134,6 +134,8 @@ func (c *CLI) HandleCommand(cmd string) {
 		}
 		c.transport.SetDropRate(rate)
 		c.logger("Set receive drop rate to %.2f", rate)
+	case "stats":
+		c.stats(parts[1:])
 	default:
 		fmt.Printf("Unknown command: %s\n", parts[0])
 	}
@@ -244,6 +246,28 @@ func (c *CLI) leave() {
 
 	//time.Sleep(300 * time.Millisecond) // one gossip tick
 	//os.Exit(0)
+}
+
+func (c *CLI) stats(args []string) {
+	if c.transport == nil {
+		fmt.Println("transport not initialized")
+		return
+	}
+	if len(args) > 0 && args[0] == "reset" {
+		c.transport.ResetStats()
+		fmt.Println("Transport stats reset")
+		return
+	}
+	stats := c.transport.Stats()
+	if stats.Since.IsZero() {
+		fmt.Println("Transport stats unavailable")
+		return
+	}
+	elapsed := time.Since(stats.Since).Round(time.Millisecond)
+	fmt.Printf("Transport stats since %s (%s elapsed)\n", stats.Since.Format(time.RFC3339), elapsed)
+	fmt.Printf("  sent_bytes=%d recv_bytes=%d\n", stats.SentBytes, stats.RecvBytes)
+	fmt.Printf("  received_packets=%d delivered_packets=%d dropped_packets=%d drop_rate=%.4f\n",
+		stats.ReceivedPackets, stats.DeliveredPackets, stats.DroppedPackets, stats.DropRate)
 }
 
 func parseAddr(addr string) (*net.UDPAddr, error) {

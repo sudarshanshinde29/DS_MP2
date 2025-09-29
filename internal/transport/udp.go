@@ -15,6 +15,16 @@ import (
 
 type Handler func(ctx context.Context, env *mpb.Envelope, addr *net.UDPAddr)
 
+type UDPStats struct {
+	ReceivedPackets  uint64
+	DroppedPackets   uint64
+	DeliveredPackets uint64
+	SentBytes        uint64
+	RecvBytes        uint64
+	DropRate         float64
+	Since            time.Time
+}
+
 type UDP struct {
 	conn       *net.UDPConn
 	handler    Handler
@@ -22,6 +32,9 @@ type UDP struct {
 	recvCount  uint64
 	dropCount  uint64
 	delivCount uint64
+	sentBytes  uint64
+	recvBytes  uint64
+	statsSince atomic.Value // time.Time
 }
 
 func NewUDP(bindAddr string, handler Handler) (*UDP, error) {
@@ -35,6 +48,7 @@ func NewUDP(bindAddr string, handler Handler) (*UDP, error) {
 	}
 	u := &UDP{conn: c, handler: handler}
 	u.dropRate.Store(float64(0))
+	u.statsSince.Store(time.Now())
 	return u, nil
 }
 
@@ -60,6 +74,7 @@ func (u *UDP) Send(to *net.UDPAddr, env *mpb.Envelope) error {
 	if len(b) > 1200 {
 		return fmt.Errorf("oversize datagram %dB > 1200B", len(b))
 	}
+	atomic.AddUint64(&u.sentBytes, uint64(len(b)))
 	_, err = u.conn.WriteToUDP(b, to)
 	return err
 }
@@ -88,6 +103,7 @@ func (u *UDP) Serve(ctx context.Context) error {
 		}
 		// ... receive packet ...
 		atomic.AddUint64(&u.recvCount, 1)
+		atomic.AddUint64(&u.recvBytes, uint64(n))
 
 		// ARTIFICIAL DROP - this is drop simulation!
 		if rnd.Float64() < u.dropRate.Load().(float64) {
@@ -107,6 +123,24 @@ func (u *UDP) Serve(ctx context.Context) error {
 	}
 }
 
-func (u *UDP) Stats() (recv, dropped, delivered uint64, dropRate float64) {
-	return u.recvCount, u.dropCount, u.delivCount, u.dropRate.Load().(float64)
+func (u *UDP) Stats() UDPStats {
+	since, _ := u.statsSince.Load().(time.Time)
+	return UDPStats{
+		ReceivedPackets:  atomic.LoadUint64(&u.recvCount),
+		DroppedPackets:   atomic.LoadUint64(&u.dropCount),
+		DeliveredPackets: atomic.LoadUint64(&u.delivCount),
+		SentBytes:        atomic.LoadUint64(&u.sentBytes),
+		RecvBytes:        atomic.LoadUint64(&u.recvBytes),
+		DropRate:         u.dropRate.Load().(float64),
+		Since:            since,
+	}
+}
+
+func (u *UDP) ResetStats() {
+	atomic.StoreUint64(&u.recvCount, 0)
+	atomic.StoreUint64(&u.dropCount, 0)
+	atomic.StoreUint64(&u.delivCount, 0)
+	atomic.StoreUint64(&u.sentBytes, 0)
+	atomic.StoreUint64(&u.recvBytes, 0)
+	u.statsSince.Store(time.Now())
 }
