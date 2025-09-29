@@ -118,6 +118,22 @@ func (c *CLI) HandleCommand(cmd string) {
 			c.proto.Sus.StartGrace(2 * time.Second)
 			c.logger("Initialized suspicion grace for ALIVE peers")
 		}
+	case "drop":
+		if len(parts) < 2 {
+			fmt.Println("Usage: drop <rate 0..1>")
+			return
+		}
+		rate, err := strconv.ParseFloat(parts[1], 64)
+		if err != nil || rate < 0 || rate > 1 {
+			fmt.Println("drop rate must be a float in [0,1]")
+			return
+		}
+		if c.transport == nil {
+			fmt.Println("transport not initialized")
+			return
+		}
+		c.transport.SetDropRate(rate)
+		c.logger("Set receive drop rate to %.2f", rate)
 	default:
 		fmt.Printf("Unknown command: %s\n", parts[0])
 	}
