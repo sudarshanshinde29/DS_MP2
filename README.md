@@ -1,4 +1,4 @@
-# Distributed Systems Membership Protocol (DS_MP2)
+# Distributed Systems Membership Protocol
 
 A Go-based implementation of a distributed membership protocol for managing node membership in a distributed system. The project implements both Gossip-style heartbeating and Ping-Ack (SWIM-style probing), each with an optional Suspicion mechanism, plus node joining, leaving, and failure detection.
 
